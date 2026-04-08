@@ -5,8 +5,8 @@ from collections import Counter
 import datetime
 import io
 
-# --- 1. नेबर और सम इंजन (Neighbor & Sum Logic) ---
-def get_neighbor_logic(df, s_name, target_date):
+# --- 1. डेड ज़ोन इंजन (Missing Digit Logic) ---
+def get_dead_zone_logic(df, s_name, target_date):
     try:
         # डेटा क्लीनिंग
         df_clean = df.iloc[:, [1, df.columns.get_loc(s_name)]].copy()
@@ -15,63 +15,63 @@ def get_neighbor_logic(df, s_name, target_date):
         df_clean['NUM'] = pd.to_numeric(df_clean['NUM'], errors='coerce')
         df_clean = df_clean.dropna(subset=['DATE', 'NUM'])
 
-        if len(df_clean) < 10:
+        if len(df_clean) < 15:
             return "Data Kam", "N/A"
 
-        # A. पिछले 24 घंटे की ताज़ा चाल
-        recent_all = df_clean[df_clean['DATE'] < target_date].tail(5)['NUM'].astype(int).tolist()
-        if not recent_all: return "No Data", "N/A"
+        # A. गायब अंकों की पहचान (Missing Digits)
+        # पिछले 10 दिनों में जो नंबर बिल्कुल नहीं आए
+        recent_10 = df_clean[df_clean['DATE'] < target_date].tail(10)['NUM'].astype(int).tolist()
         
-        last_val = recent_all[-1]
+        # B. हरुफ़ फ्रीक्वेंसी (Haruf Frequency)
+        all_andar = [n // 10 for n in recent_10]
+        all_bahar = [n % 10 for n in recent_10]
         
-        # B. नेबर लॉजिक (Neighbor Logic: +1, -1)
-        # अक्सर नंबर पिछले अंक के ठीक आगे या पीछे का आता है
-        n1 = (last_val + 1) % 100
-        n2 = (last_val - 1) % 100
+        # वे हरुफ़ जो पिछले 3 दिनों से 'गायब' (Missing) हैं
+        missing_andar = [d for d in range(10) if d not in all_andar[-3:]]
+        missing_bahar = [d for d in range(10) if d not in all_bahar[-3:]]
         
-        # C. जोड़ (Digital Sum) का रोटेशन
-        d_sum = (last_val // 10 + last_val % 10) % 10
-        # जोड़ के साथ बाहर का हरुफ़ जोड़ना
-        sum_pick = (d_sum * 10) + (last_val % 10)
-
-        # D. राशि/मिरर (Mirror)
+        # C. नेबर राशि (Neighbor Mirror)
+        last_val = recent_10[-1]
         mirror = (last_val + 50) % 100
 
-        analysis = f"🎯 पिछला अंक: {last_val:02d} | ➕ जोड़ चाल: {d_sum} | 🪞 मिरर: {mirror:02d}"
+        analysis = f"🎯 गायब अंदर: {missing_andar[:2]} | 🎯 गायब बाहर: {missing_bahar[:2]} | 🪞 मिरर: {mirror:02d}"
         
-        # --- टॉप 3 मास्टर प्रेडिक्शन (Neighbor Focus) ---
-        p1 = f"{mirror:02d}"  # राशि सबसे पहले
-        p2 = f"{n1:02d}"      # पड़ोसी अंक (+1)
-        p3 = f"{sum_pick:02d}" # जोड़ की चाल
+        # --- टॉप 3 अनछुए अंक (Dead Zone Picks) ---
+        # 1. गायब अंदर + गायब बाहर का मेल
+        p1 = f"{(missing_andar[0] * 10) + missing_bahar[0]:02d}" if missing_andar and missing_bahar else "00"
+        # 2. पिछले अंक का मिरर (राशि)
+        p2 = f"{mirror:02d}"
+        # 3. पिछले अंक की 'पलटी' + 1 (Next Pulse)
+        p3 = f"{( (last_val % 10) * 10 + (last_val // 10) + 1 ) % 100:02d}"
         
         return analysis, f"{p1} | {p2} | {p3}"
     except:
-        return "Analyzing Pulse..", "N/A"
+        return "Scanning Dead Zone..", "N/A"
 
 # --- 2. UI सेटअप ---
-st.set_page_config(page_title="MAYA AI Neighbor", layout="wide")
-st.title("🛡️ MAYA AI: Neighbor & Sum Tracker")
+st.set_page_config(page_title="MAYA AI DeadZone", layout="wide")
+st.title("🚫 MAYA AI: Dead Zone & Missing Digit")
 
-uploaded_file = st.file_uploader("📂 अपनी 5 साल की Excel फ़ाइल अपलोड करें", type=['xlsx'], key="v16_neighbor")
+uploaded_file = st.file_uploader("📂 अपनी 5 साल की Excel फ़ाइल अपलोड करें", type=['xlsx'], key="v17_deadzone")
 
 if uploaded_file:
     try:
         data_bytes = uploaded_file.getvalue()
         df = pd.read_excel(io.BytesIO(data_bytes), engine='openpyxl')
         
-        # तारीख मिलान
+        # तारीख मिलान (B Column)
         df_match = df.copy()
         df_match['DATE_COL'] = pd.to_datetime(df_match.iloc[:, 1], dayfirst=True, errors='coerce').dt.date
         
         shift_cols = [c for c in ['DS', 'FD', 'GD', 'GL', 'DB', 'SG', 'ZA'] if c in df.columns]
         target_date = st.date_input("📅 तारीख चुनें (8 अप्रैल 2026):", datetime.date.today())
 
-        if st.button("🚀 नेबर स्कैन शुरू करें"):
+        if st.button("🚀 डेड-ज़ोन स्कैन शुरू करें"):
             selected_row = df_match[df_match['DATE_COL'] == target_date]
             results_list = []
 
             for s in shift_cols:
-                logic_info, top_picks = get_neighbor_logic(df_match, s, target_date)
+                logic_info, top_picks = get_dead_zone_logic(df_match, s, target_date)
                 
                 # SAME DAY RESULT
                 actual_val = "--"
@@ -85,12 +85,12 @@ if uploaded_file:
                 results_list.append({
                     "Shift": s,
                     "📍 SAME DAY": actual_val,
-                    "🗓️ ताज़ा चाल (Neighbor)": logic_info,
-                    "🌟 टॉप 3 मास्टर अंक": top_picks
+                    "🗓️ गायब अंक विश्लेषण": logic_info,
+                    "🌟 टॉप 3 अनछुए अंक": top_picks
                 })
 
             st.table(pd.DataFrame(results_list))
-            st.info("💡 **टिप:** जब गेम 100% फेल हो रहा हो, तो नंबर अक्सर पिछले अंक के बिल्कुल बगल वाला (+1/-1) या उसकी राशि (Mirror) में आता है।")
+            st.info("💡 **डेड ज़ोन क्या है?** जब गेम फेल होता है, तो वह उन अंकों को पकड़ता है जो पिछले 3-4 दिनों से बिल्कुल नहीं आए। यह कोड उन्हीं 'गायब' अंकों को ढूँढता है।")
             st.balloons()
 
     except Exception as e:
